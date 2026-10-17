@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
@@ -7,9 +8,19 @@ const User = require("../models/User");
 const Profile = require("../models/Profile");
 const authMiddleware = require("../middleware/authMiddleware");
 
+// Helper function to establish/confirm DB connection before running queries
+const ensureDBConnected = async () => {
+  if (mongoose.connection.readyState !== 1) {
+    await mongoose.connect(process.env.MONGO_URI, {
+      serverSelectionTimeoutMS: 5000,
+    });
+  }
+};
+
 // 1. PUBLIC GET PROFILE ENDPOINT
 router.get("/profile", async (req, res) => {
   try {
+    await ensureDBConnected();
     let profile = await Profile.findOne();
     if (!profile) {
       profile = await Profile.create({});
@@ -23,6 +34,7 @@ router.get("/profile", async (req, res) => {
 // 2. PROTECTED PUT PROFILE ENDPOINT (ADMIN ONLY)
 router.put("/profile", authMiddleware, async (req, res) => {
   try {
+    await ensureDBConnected();
     let profile = await Profile.findOne();
     if (!profile) {
       profile = new Profile(req.body);
@@ -39,6 +51,7 @@ router.put("/profile", authMiddleware, async (req, res) => {
 // 3. ADMIN REGISTER ROUTE
 router.post("/register", async (req, res) => {
   try {
+    await ensureDBConnected();
     const { email, password } = req.body;
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = new User({ email, password: hashedPassword });
@@ -52,6 +65,7 @@ router.post("/register", async (req, res) => {
 // 4. ADMIN LOGIN ROUTE (RESTRICTED TO san@gmail.com)
 router.post("/login", async (req, res) => {
   try {
+    await ensureDBConnected();
     const { email, password } = req.body;
 
     if (email !== "san@gmail.com") {
@@ -68,7 +82,11 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ error: "Invalid admin password." });
     }
 
-    const token = jwt.sign({ id: user._id, email: user.email }, "MY_SECRET_KEY", { expiresIn: "1h" });
+    const token = jwt.sign(
+      { id: user._id, email: user.email },
+      process.env.JWT_SECRET || "MY_SECRET_KEY",
+      { expiresIn: "1h" }
+    );
     res.json({ message: "Login successful", token: token });
   } catch (err) {
     res.status(500).json({ error: err.message });
